@@ -1,0 +1,168 @@
+:root {
+    --shader-color-1: #ffffff;
+    --shader-color-2: #ff0000;
+    --shader-color-3: #000000;
+}
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color:   #000000;
+    color: #ab5959;
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+#shader-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: 0.4;
+    border-radius: 16px;
+    z-index: 0;
+}
+
+.player-container {
+    position: absolute;
+    transform-origin: 0 0;
+    background-color: #131313;
+    border-radius: 16px;
+    padding: 30px;
+    width: 350px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    text-align: center;
+    overflow: hidden;
+}
+
+.player-container > *:not(#shader-bg) {
+    position: relative;
+    z-index: 1;
+}
+
+.handle {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+    cursor: grab;
+    z-index: 10;
+    opacity: 0;
+}
+
+.handle:active {
+    cursor: grabbing;
+}
+
+.artwork-container {
+    width: 300px;
+    height: 300px;
+    margin: 0 auto 20px;
+    border-radius: 12px;
+    overflow: hidden;
+    background-color: #2a2a2a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+#cover-art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.placeholder {
+    color: #666;
+    font-size: 1.2rem;
+}
+
+.pause-overlay {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    pointer-events: none;
+    border-radius: 12px;
+}
+
+.pause-icon {
+    width: 80px;
+    height: 80px;
+    fill: rgba(255, 255, 255, 0.9);
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.track-info {
+    margin-bottom: 25px;
+}
+
+h2 {
+    margin: 0 0 5px;
+    font-size: 1.4rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+h3 {
+    margin: 0 0 5px;
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: #b3b3b3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+h4 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: #808080;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.progress-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.time {
+    font-size: 0.8rem;
+    color: #b3b3b3;
+    font-variant-numeric: tabular-nums;
+    width: 40px;
+}
+
+.progress-bar {
+    flex-grow: 1;
+    height: 6px;
+    background-color: #333;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background-color: #1db954; /* Spotify green, or use #007aff for Apple blue */
+    width: 0%;
+    transition: width 0.1s linear;
+}

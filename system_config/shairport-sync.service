@@ -1,0 +1,20 @@
+[Unit]
+Description=Shairport Sync - AirPlay Audio Receiver
+After=sound.target
+Wants=network-online.target
+After=network.target network-online.target
+After=avahi-daemon.service nqptp.service
+Requires=avahi-daemon.service nqptp.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+ExecStart=/usr/local/bin/shairport-sync --log-to-syslog
+User=shairport-sync
+Group=shairport-sync
+LimitRTPRIO=5
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

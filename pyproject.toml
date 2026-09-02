@@ -1,0 +1,14 @@
+[project]
+name = "shairport-web"
+version = "0.1.0"
+description = "A simple web server to display Shairport Sync metadata"
+requires-python = ">=3.9"
+dependencies = [
+    "arel>=0.4.0",
+    "fastapi",
+    "uvicorn",
+    "websockets",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

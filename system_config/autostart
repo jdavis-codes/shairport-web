@@ -1,0 +1,7 @@
+#!/bin/sh
+# Start Shairport Web UI in fullscreen Chromium
+# Disable keyring by telling chromium to use basic storage
+chromium --start-fullscreen --start-maximized --kiosk \
+  --password-store=basic \
+  --disable-features=GnomeKeyringPasswordStore \
+  http://localhost:8000 &
