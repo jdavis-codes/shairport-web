@@ -6,3 +6,5 @@ __pycache__/
 *.swo
 *.log
 shairport_web.egg-info/
+venv/
+.venv/
