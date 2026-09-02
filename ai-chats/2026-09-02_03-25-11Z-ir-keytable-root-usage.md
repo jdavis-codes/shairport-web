@@ -2128,6 +2128,31 @@ https://github.com/mfreeborn/heliocron
 
 ---
 
+_**Agent (copilot/gpt-5.3-codex)**_
+
+Yes, for your use case, crontab is a good choice.
+
+Why:
+1. Very simple to understand and edit.
+2. Perfect for fixed times like 10pm weekdays and midnight weekends.
+3. Works well with heliocron for sunset-based start.
+
+Recommendation:
+1. Use root crontab for now (since IR send commands usually need elevated permissions).
+2. Keep logic in small scripts, and let cron only schedule them.
+3. Later, if you want stronger reliability and logs, move to systemd timers.
+
+Quick start:
+1. Open scheduler: sudo crontab -e
+2. Add your lines
+3. Verify loaded: sudo crontab -l
+4. Check cron logs: journalctl -u cron -b --no-pager
+
+One important caveat:
+If your IR power code is a toggle (same code for on/off), scheduled off can accidentally turn it on. Ideally find a discrete OFF code before automating off times.
+
+---
+
 _**User (2026-09-02 04:22:54Z)**_
 
 what is 0 12 * * * 
@@ -2253,3 +2278,70 @@ Good compromise pattern:
 3. Immediately exit root shell after the admin change.
 
 If you want, I can give you a tiny “safe workflow cheat sheet” for your Pi with 6-8 commands you can memorize.
+
+---
+
+_**User (2026-09-02 04:59:19Z)**_
+
+should i use chrontab?
+
+---
+
+_**User (2026-09-02 05:07:20Z)**_
+
+CRON_TZ=America/New_York
+0 12 * * * /usr/local/bin/heliocron -l YOUR_LAT -o YOUR_LON wait -e sunset --run-missed-task && [projector-ir-wake.sh](http://_vscodecontentref_/0) 3 >> /tmp/projector-cron.log 2>&1
+0 22 * * 1-5 /usr/bin/ir-ctl -d /dev/lirc0 -S nec:0xa8 >> /tmp/projector-cron.log 2>&1
+0 0 * * 6,0 /usr/bin/ir-ctl -d /dev/lirc0 -S nec:0xa8 >> /tmp/projector-cron.log 2>&1
+
+why do we mix shell script and direct ir-ctl commands? only use shell script so if it changes it changes for all
+
+---
+
+_**Agent (copilot/gpt-5.3-codex)**_
+
+You are 100% right. Mixing direct ir-ctl and script calls is inconsistent.
+
+Use the script everywhere so there is one source of truth: ada/bin/projector-ir-wake.sh
+
+Assuming you are editing root crontab, use:
+
+CRON_TZ=America/New_York
+0 12 * * * /usr/local/bin/heliocron -l YOUR_LAT -o YOUR_LON wait -e sunset --run-missed-task && `projector-ir-wake.sh` 3 >> /tmp/projector-cron.log 2>&1
+0 22 * * 1-5 `projector-ir-wake.sh` 1 >> /tmp/projector-cron.log 2>&1
+0 0 * * 6,0 `projector-ir-wake.sh` 1 >> /tmp/projector-cron.log 2>&1
+
+Why this is better:
+1. Change IR behavior in one place only.
+2. Cron stays simple.
+3. Easier testing: run the same script manually and from cron.
+
+Small note: if your projector uses a toggle power code, those off schedules may sometimes turn it on instead. The clean fix is finding a discrete OFF code and then adding OFF handling in the same script.
+
+---
+
+_**User (2026-09-02 05:08:13Z)**_
+
+0 22 * * 1-5 means weekdays?
+0 0 * * 6,0 means weekends? can we comment in crontab?
+
+---
+
+_**Agent (copilot/gpt-5.3-codex)**_
+
+Yes.
+
+1. 0 22 * * 1-5 means 10:00 PM on Monday through Friday (weekdays).
+2. 0 0 * * 6,0 means 12:00 AM on Saturday and Sunday.
+
+You can absolutely comment in crontab.
+1. Use a full line starting with #.
+2. Best practice: avoid inline comments at end of a cron command line, because cron may treat them as part of the command.
+
+Example:
+
+# Weekday off at 10 PM ET
+0 22 * * 1-5 `projector-ir-wake.sh` 1 >> /tmp/projector-cron.log 2>&1
+
+# Weekend off at midnight ET
+0 0 * * 6,0 `projector-ir-wake.sh` 1 >> /tmp/projector-cron.log 2>&1
