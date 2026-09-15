@@ -1,47 +1,74 @@
 const el = document.getElementById('target');
 const handles = [...document.querySelectorAll('.handle')];
 
-// Center the player first by setting left/top
-const centerX = window.innerWidth / 2;
-const centerY = window.innerHeight / 2;
-// Width is 350 + 60 padding = 410
-// Height varies but approximate with content
-el.style.left = (centerX - 205) + 'px';
-el.style.top = (centerY - 230) + 'px';
+if (!el || handles.length !== 4) {
+  throw new Error('warp.js: missing #target or .handle elements');
+}
 
-// Now get the actual rendered dimensions of the player
-const playerBox = el.getBoundingClientRect();
-const rect = { 
-  x: playerBox.left, 
-  y: playerBox.top, 
-  w: playerBox.width, 
-  h: playerBox.height 
+const viewName = document.body?.dataset?.view || 'classic';
+const storageKey = `warpState:${viewName}`;
+const legacyStorageKey = 'warpState';
+
+function readCachedState() {
+  const primary = localStorage.getItem(storageKey);
+  const legacy = localStorage.getItem(legacyStorageKey);
+  const raw = primary || legacy;
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeCachedState(state) {
+  const payload = JSON.stringify(state);
+  localStorage.setItem(storageKey, payload);
+  if (viewName === 'classic') {
+    // Keep backward compatibility with existing saved calibrations.
+    localStorage.setItem(legacyStorageKey, payload);
+  }
+}
+
+// Measure size with no transform so we can place a true centered default.
+el.style.transform = 'none';
+el.style.left = '0px';
+el.style.top = '0px';
+const measuredBox = el.getBoundingClientRect();
+
+const rect = {
+  x: (window.innerWidth - measuredBox.width) / 2,
+  y: (window.innerHeight - measuredBox.height) / 2,
+  w: measuredBox.width,
+  h: measuredBox.height,
 };
 
-// Perimeter order: TL, TR, BR, BL
 const base = [
-  {x: rect.x,         y: rect.y},         // 0: TL
-  {x: rect.x+rect.w,  y: rect.y},         // 1: TR
-  {x: rect.x+rect.w,  y: rect.y+rect.h},  // 2: BR
-  {x: rect.x,         y: rect.y+rect.h},  // 3: BL
+  { x: rect.x, y: rect.y },
+  { x: rect.x + rect.w, y: rect.y },
+  { x: rect.x + rect.w, y: rect.y + rect.h },
+  { x: rect.x, y: rect.y + rect.h },
 ];
 
-// Load cached corners and rect position from localStorage
-const cached = localStorage.getItem('warpState');
-let corners;
+let corners = base.map((p) => ({ ...p }));
+const cached = readCachedState();
 if (cached) {
-  try {
-    const state = JSON.parse(cached);
-    corners = state.corners || base.map(p => ({...p}));
-    if (state.rect) {
-      rect.x = state.rect.x;
-      rect.y = state.rect.y;
-    }
-  } catch(e) {
-    corners = base.map(p => ({...p}));
+  if (cached.rect && Number.isFinite(cached.rect.x) && Number.isFinite(cached.rect.y)) {
+    rect.x = cached.rect.x;
+    rect.y = cached.rect.y;
   }
-} else {
-  corners = base.map(p => ({...p}));
+  if (Array.isArray(cached.corners) && cached.corners.length === 4) {
+    const validCorners = cached.corners.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (validCorners) {
+      corners = cached.corners.map((p) => ({ x: p.x, y: p.y }));
+    }
+  }
+}
+
+function logWarpCorners(label) {
+  console.log(`[WARP] ${label} ${corners.map((p, i) => `${i}:(${p.x.toFixed(1)},${p.y.toFixed(1)})`).join(' ')}`);
 }
 
 function cornerPin(el, w, h, pts) {
@@ -70,9 +97,19 @@ function render() {
   });
   
   // Save state to localStorage
-  localStorage.setItem('warpState', JSON.stringify({
+  writeCachedState({
     corners,
     rect: { x: rect.x, y: rect.y }
+  });
+}
+
+function emitWarpReady() {
+  window.dispatchEvent(new CustomEvent('warp:ready', {
+    detail: {
+      view: viewName,
+      rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+      corners: corners.map((p) => ({ x: p.x, y: p.y })),
+    },
   }));
 }
 
@@ -80,12 +117,15 @@ handles.forEach(h => {
   h.addEventListener('pointerdown', e => {
     e.stopPropagation();
     const i = +h.dataset.i;
+    let moved = false;
     h.setPointerCapture(e.pointerId);
     const move = ev => {
+      moved = true;
       corners[i] = { x: ev.clientX, y: ev.clientY };
       render();
     };
     const up = () => {
+      if (moved) logWarpCorners('corner_released');
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
@@ -99,23 +139,28 @@ el.addEventListener('pointerdown', e => {
   const startX = e.clientX;
   const startY = e.clientY;
   const startCorners = corners.map(c => ({...c}));
+  const startRectX = rect.x;
+  const startRectY = rect.y;
+  let moved = false;
   
   const move = ev => {
     const dx = ev.clientX - startX;
     const dy = ev.clientY - startY;
+    moved = true;
     
     corners = startCorners.map(c => ({
       x: c.x + dx,
       y: c.y + dy
     }));
     
-    rect.x = playerBox.left + dx;
-    rect.y = playerBox.top + dy;
+    rect.x = startRectX + dx;
+    rect.y = startRectY + dy;
     
     render();
   };
   
   const up = () => {
+    if (moved) logWarpCorners('frame_drag_released');
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
   };
@@ -125,3 +170,4 @@ el.addEventListener('pointerdown', e => {
 });
 
 render();
+emitWarpReady();

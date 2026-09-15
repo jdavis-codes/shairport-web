@@ -1,0 +1,222 @@
+/* 1970's CRT / Oscilloscope Vector Graphics Theme
+   Optimized for high-contrast laser projectors:
+   - No shader background
+   - 2:1 rectangle aspect ratio
+   - Sharp white border
+   - High contrast bright white text (#ffffff)
+   - Oscilloscope font + monospace fallback
+   - Title / artist to the right of cover art
+   - Double font size, bold
+   - Full width progress bar across bottom
+*/
+
+@import url('https://fonts.cdnfonts.com/css/oscilloscope');
+
+:root {
+    --fg: #ffffff;
+    --bg: #000000;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Oscilloscope', 'Courier New', Courier, monospace;
+    background-color: var(--bg);
+    color: var(--fg);
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+#growth-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* 2:1 aspect ratio rectangle with white border */
+.player-container {
+    position: absolute;
+    transform-origin: 0 0;
+    z-index: 2;
+    background-color: var(--bg);
+    border: 3px solid var(--fg);
+    border-radius: 0;
+    width: 800px;
+    height: 400px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+    overflow: hidden;
+}
+
+/* Top area: artwork on left, track info on right */
+.top-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 28px;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Square cover art container */
+.artwork-container {
+    width: 280px;
+    height: 280px;
+    flex-shrink: 0;
+    border: 2px solid var(--fg);
+    border-radius: 0;
+    overflow: hidden;
+    background-color: var(--bg);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+#cover-art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.placeholder {
+    color: var(--fg);
+    font-size: 4rem;
+    font-weight: 700;
+}
+
+.pause-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+}
+
+.pause-icon {
+    width: 80px;
+    height: 80px;
+    fill: var(--fg);
+}
+
+/* Track info to the right of artwork: double size, bold, bright white */
+.track-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 12px;
+    text-align: left;
+}
+
+h2#title {
+    font-size: 2.8rem;
+    font-weight: 900;
+    color: var(--fg);
+    line-height: 1.15;
+    word-break: break-word;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+h3#artist {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--fg);
+    line-height: 1.2;
+    word-break: break-word;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+h4#album {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--fg);
+    line-height: 1.2;
+    word-break: break-word;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    opacity: 0.9;
+}
+
+/* Progress bar: full width across bottom below both cover art and text */
+.progress-container {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.time {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--fg);
+    min-width: 70px;
+    letter-spacing: 0.05em;
+}
+
+#time-current {
+    text-align: left;
+}
+
+#time-total {
+    text-align: right;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 14px;
+    background-color: transparent;
+    border: 2px solid var(--fg);
+    border-radius: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background-color: var(--fg);
+    transition: width 0.1s linear;
+}
+
+/* Warp handles */
+.handle {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+    cursor: grab;
+    z-index: 12;
+    opacity: 0;
+}
+
+.handle:active {
+    cursor: grabbing;
+}

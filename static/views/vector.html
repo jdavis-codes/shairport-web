@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shairport Sync Now Playing — Vector</title>
+    <link rel="stylesheet" href="/static/vector.css">
+</head>
+<body data-view="vector">
+
+    <div id="stage">
+        <div class="player-container" id="target">
+            <div class="top-row">
+                <div class="artwork-container">
+                    <img id="cover-art" src="" alt="Cover Art" style="display: none;">
+                    <div id="no-artwork" class="placeholder">~</div>
+                    <div id="pause-overlay" class="pause-overlay" style="display: none;">
+                        <svg viewBox="0 0 24 24" class="pause-icon">
+                            <rect x="6" y="4" width="4" height="16" />
+                            <rect x="14" y="4" width="4" height="16" />
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="track-info">
+                    <h2 id="title">~</h2>
+                    <h3 id="artist"></h3>
+                    <h4 id="album"></h4>
+                </div>
+            </div>
+
+            <div class="progress-container">
+                <div class="time" id="time-current">0:00</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div class="time" id="time-total">0:00</div>
+            </div>
+        </div>
+
+        <div class="handle" data-i="0"></div>
+        <div class="handle" data-i="1"></div>
+        <div class="handle" data-i="2"></div>
+        <div class="handle" data-i="3"></div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/growth.js"></script>
+    <script src="/static/warp.js"></script>
+</body>
+</html>

@@ -29,8 +29,29 @@ if _debug := os.getenv("DEBUG"):
 # Store active websocket connections
 active_connections = []
 
-# Path for persisting state across reloads
+# Path for persisting state and active view across reloads
 STATE_FILE = Path("/tmp/shairport-web-state.json")
+VIEW_FILE = Path("/tmp/shairport-web-view.txt")
+STATIC_DIR = Path(__file__).parent / "static"
+VIEWS_DIR = STATIC_DIR / "views"
+
+def get_active_view_name() -> str:
+    """Return currently active view name ('vector', 'classic', etc.)."""
+    try:
+        if VIEW_FILE.exists():
+            v = VIEW_FILE.read_text().strip()
+            if v:
+                return v
+    except Exception:
+        pass
+    return "vector"
+
+def set_active_view_name(name: str):
+    """Set and persist active view name."""
+    try:
+        VIEW_FILE.write_text(name.strip())
+    except Exception:
+        pass
 
 # Known metadata codes we care about (everything else is noise)
 KNOWN_CODES = {"PICT", "prgr", "pfls", "prsm", "pend", "minm", "asar", "asal"}
@@ -281,14 +302,38 @@ async def shutdown_event():
     if _udp_thread and _udp_thread.is_alive():
         _udp_thread.join(timeout=2)
 
-@app.get("/")
-async def get():
-    with open("static/index.html", "r") as f:
-        html = f.read()
+def render_view_html(view_name: str) -> str:
+    """Load HTML file for a view, falling back to static/views/vector.html or static/index.html."""
+    view_path = VIEWS_DIR / f"{view_name}.html"
+    if not view_path.exists():
+        view_path = VIEWS_DIR / "vector.html"
+    if not view_path.exists():
+        view_path = STATIC_DIR / "index.html"
+    
+    html = view_path.read_text(encoding="utf-8")
     if _debug := os.getenv("DEBUG"):
         script = hot_reload.script("ws://localhost:8000/hot-reload")
         html = html.replace("</body>", script + "\n</body>")
-    return HTMLResponse(html)
+    return html
+
+@app.get("/")
+async def get(view: str = None):
+    if view:
+        set_active_view_name(view)
+    active_view = get_active_view_name()
+    return HTMLResponse(render_view_html(active_view))
+
+@app.get("/view/{name}")
+async def switch_view_api(name: str):
+    set_active_view_name(name)
+    # Touch main.py or reload trigger so kiosk auto-reloads via hot_reload
+    try:
+        touch_file = STATIC_DIR / "index.html"
+        if touch_file.exists():
+            touch_file.touch()
+    except Exception:
+        pass
+    return {"status": "ok", "active_view": name}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

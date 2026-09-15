@@ -162,7 +162,7 @@ h4 {
 
 .progress-fill {
     height: 100%;
-    background-color: #1db954; /* Spotify green, or use #007aff for Apple blue */
+    background-color: #007aff; /* Spotify green, or use #007aff for Apple blue */
     width: 0%;
     transition: width 0.1s linear;
 }

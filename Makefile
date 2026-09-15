@@ -1,4 +1,4 @@
-.PHONY: help scan hdmi1 hdmi2 hifiberry restart status hotplug-enable hotplug-disable hotplug-status web web-start web-stop web-logs web-reopen cron-install cron-show projector-on projector-once projector-off projector-off-once projector-boot-enable projector-boot-disable projector-boot-run projector-boot-status ir-status ir-scan
+.PHONY: help scan hdmi1 hdmi2 hifiberry restart status hotplug-enable hotplug-disable hotplug-status web web-start web-stop web-logs web-reopen web-view-vector web-view-classic web-view-status cron-install cron-show projector-on projector-once projector-off projector-off-once projector-boot-enable projector-boot-disable projector-boot-run projector-boot-status ir-status ir-scan
 
 SHAIRPORT_CONF = /usr/local/etc/shairport-sync.conf
 WEB_DIR = /home/ada/shairport-web
@@ -28,6 +28,9 @@ help:
 	@echo "  make web-stop            # Stop web UI"
 	@echo "  make web-logs            # Tail web UI logs"
 	@echo "  make web-reopen          # Open web UI in browser"
+	@echo "  make web-view-vector     # Switch active UI to vector (CRT / oscilloscope)"
+	@echo "  make web-view-classic    # Switch active UI to classic (shader background)"
+	@echo "  make web-view-status     # Show currently active UI view"
 	@echo ""
 	@echo "Projector power (IR TX):"
 	@echo "  make projector-on        # Request ON state (3x burst, no-op if already ON)"
@@ -134,6 +137,25 @@ web-logs:
 
 web-reopen:
 	@xdg-open http://localhost:8000 2>/dev/null || echo "Open http://localhost:8000 in your browser"
+
+web-view-vector:
+	@echo "vector" > /tmp/shairport-web-view.txt
+	@touch $(WEB_DIR)/static/index.html 2>/dev/null || true
+	@curl -s http://localhost:8000/view/vector > /dev/null 2>&1 || true
+	@echo "Active UI view set to: vector (1970s CRT / oscilloscope vector layout)"
+
+web-view-classic:
+	@echo "classic" > /tmp/shairport-web-view.txt
+	@touch $(WEB_DIR)/static/index.html 2>/dev/null || true
+	@curl -s http://localhost:8000/view/classic > /dev/null 2>&1 || true
+	@echo "Active UI view set to: classic (shader background layout)"
+
+web-view-status:
+	@if [ -f /tmp/shairport-web-view.txt ]; then \
+		echo "Active UI view: $$(cat /tmp/shairport-web-view.txt)"; \
+	else \
+		echo "Active UI view: vector (default)"; \
+	fi
 
 # --- Cron Schedule ---
 
