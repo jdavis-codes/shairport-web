@@ -1,8 +1,10 @@
-.PHONY: help scan hdmi1 hdmi2 hifiberry restart status web web-start web-stop web-logs web-reopen cron-install cron-show projector-on projector-once projector-boot-enable projector-boot-disable projector-boot-run projector-boot-status ir-status ir-scan
+.PHONY: help scan hdmi1 hdmi2 hifiberry restart status hotplug-enable hotplug-disable hotplug-status web web-start web-stop web-logs web-reopen cron-install cron-show projector-on projector-once projector-off projector-off-once projector-boot-enable projector-boot-disable projector-boot-run projector-boot-status ir-status ir-scan
 
 SHAIRPORT_CONF = /usr/local/etc/shairport-sync.conf
 WEB_DIR = /home/ada/shairport-web
 CRON_FILE = $(WEB_DIR)/system_config/ada.crontab
+HOTPLUG_RULE_SRC = $(WEB_DIR)/system_config/99-hdmi-hotplug.rules
+HOTPLUG_RULE_DST = /etc/udev/rules.d/99-hdmi-hotplug.rules
 
 help:
 	@echo "Available targets:"
@@ -16,6 +18,9 @@ help:
 	@echo "Shairport service:"
 	@echo "  make restart             # Restart Shairport Sync"
 	@echo "  make status              # Show service status + active output"
+	@echo "  make hotplug-enable      # Enable HDMI hotplug auto-restart rule"
+	@echo "  make hotplug-disable     # Disable HDMI hotplug auto-restart rule"
+	@echo "  make hotplug-status      # Show HDMI hotplug rule status"
 	@echo ""
 	@echo "Web UI:"
 	@echo "  make web                 # Run web UI in foreground"
@@ -25,8 +30,10 @@ help:
 	@echo "  make web-reopen          # Open web UI in browser"
 	@echo ""
 	@echo "Projector power (IR TX):"
-	@echo "  make projector-on        # Send projector power code 3x"
-	@echo "  make projector-once      # Send projector power code once"
+	@echo "  make projector-on        # Request ON state (3x burst, no-op if already ON)"
+	@echo "  make projector-once      # Request ON state (1x burst, no-op if already ON)"
+	@echo "  make projector-off       # Request OFF state (3x burst, no-op if already OFF)"
+	@echo "  make projector-off-once  # Request OFF state (1x burst, no-op if already OFF)"
 	@echo "  make projector-boot-enable  # Enable boot-time projector wake service"
 	@echo "  make projector-boot-disable # Disable boot-time projector wake service"
 	@echo "  make projector-boot-run     # Trigger boot-time service now"
@@ -83,6 +90,28 @@ status:
 	@echo "--- Active Audio Output ---"
 	@shairport-sync -X 2>&1 | grep output_device
 
+hotplug-enable:
+	@echo "Enabling HDMI hotplug auto-restart rule..."
+	@sudo install -m 0644 $(HOTPLUG_RULE_SRC) $(HOTPLUG_RULE_DST)
+	@sudo udevadm control --reload-rules
+	@echo "Enabled: $(HOTPLUG_RULE_DST)"
+
+hotplug-disable:
+	@echo "Disabling HDMI hotplug auto-restart rule..."
+	@sudo rm -f $(HOTPLUG_RULE_DST)
+	@sudo udevadm control --reload-rules
+	@echo "Disabled: $(HOTPLUG_RULE_DST)"
+
+hotplug-status:
+	@if [ -f $(HOTPLUG_RULE_DST) ]; then \
+		echo "HOTPLUG RULE: enabled"; \
+		echo "Path: $(HOTPLUG_RULE_DST)"; \
+		sed -n '1,5p' $(HOTPLUG_RULE_DST); \
+	else \
+		echo "HOTPLUG RULE: disabled"; \
+		echo "Missing: $(HOTPLUG_RULE_DST)"; \
+	fi
+
 # --- Web UI ---
 
 web:
@@ -121,12 +150,20 @@ cron-show:
 # --- IR Projector Power ---
 
 projector-on:
-	@echo "Sending projector power IR code 3x..."
-	@sudo /home/ada/bin/projector-ir-wake.sh 3
+	@echo "Requesting projector ON (3x burst)..."
+	@sudo /home/ada/bin/projector-ir-wake.sh 3 on
 
 projector-once:
-	@echo "Sending projector power IR code once..."
-	@sudo /home/ada/bin/projector-ir-wake.sh 1
+	@echo "Requesting projector ON (1x burst)..."
+	@sudo /home/ada/bin/projector-ir-wake.sh 1 on
+
+projector-off:
+	@echo "Requesting projector OFF (3x burst)..."
+	@sudo /home/ada/bin/projector-ir-wake.sh 3 off
+
+projector-off-once:
+	@echo "Requesting projector OFF (1x burst)..."
+	@sudo /home/ada/bin/projector-ir-wake.sh 1 off
 
 projector-boot-enable:
 	@echo "Enabling boot-time projector IR wake service..."

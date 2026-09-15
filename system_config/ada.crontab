@@ -2,10 +2,10 @@ CRON_TZ=America/New_York
 
 # Latitude/longitude are configured in /home/ada/.config/heliocron.toml
 # Daily ON: start at noon ET, heliocron waits until sunset + 6h40m, then sends ON code.
-0 12 * * * /home/ada/.cargo/bin/heliocron wait -e sunset --run-missed-event --offset 06:40 && /home/ada/bin/projector-ir-wake.sh 3 >> /tmp/projector-cron.log 2>&1
+0 12 * * * /home/ada/.cargo/bin/heliocron wait -e sunset --run-missed-event --offset 06:40 && /home/ada/bin/projector-ir-wake.sh 3 on >> /tmp/projector-cron.log 2>&1
 
 # Weekday OFF at 10 PM ET
-0 22 * * 1-5 /home/ada/bin/projector-ir-wake.sh 1 >> /tmp/projector-cron.log 2>&1
+0 22 * * 1-5 /home/ada/bin/projector-ir-wake.sh 3 off >> /tmp/projector-cron.log 2>&1
 
 # Weekend OFF at midnight ET
-0 0 * * 6,0 /home/ada/bin/projector-ir-wake.sh 1 >> /tmp/projector-cron.log 2>&1
+0 0 * * 6,0 /home/ada/bin/projector-ir-wake.sh 3 off >> /tmp/projector-cron.log 2>&1
