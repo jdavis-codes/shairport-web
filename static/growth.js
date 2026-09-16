@@ -2,67 +2,169 @@
   const stage = document.getElementById("stage");
   const player = document.getElementById("target");
 
-  if (!stage || !player) {
+  if (!stage || !player || !window.p5) {
     return;
   }
 
-  const canvas = document.createElement("canvas");
-  canvas.id = "growth-canvas";
-  stage.insertBefore(canvas, stage.firstChild);
-
-  const ctx = canvas.getContext("2d", { alpha: true });
-  if (!ctx) {
-    return;
-  }
-
-  let nodes = [];
-  let tick = 0;
-  let rafId = null;
-  let warpReady = false;
-
-  // All tuning knobs live here so there are no hidden "magic numbers".
-  const SETTINGS = {
-    insertDistancePx: 16,
-    separationRatio: 2.2,
-    maxPoints: 2000,
-    obstaclePaddingPx: 10,
-    obstacleClearancePx: 10,
-    spawnInsetPx: 180,
-    edgeSoftMarginPx: 7,
-    edgeHardMarginPx: 4,
-    neighborSpring: 0.4,
-    outwardForce: 0.065,
-    wobbleForce: 0.34,
-    wobbleSpeedX: 0.006,
-    wobbleSpeedY: 0.005,
-    wobblePhaseX: 0.71,
-    wobblePhaseY: 0.57,
-    velocityGain: 0.35,
-    velocityDamping: 0.915,
+  const CFG = {
+    insertDistance: 14,
+    separationDistance: 30,
+    maxPoints: 4800,
+    edgeSoftMargin: 14,
+    edgeHardMargin: 4,
+    obstaclePadding: 10,
+    obstacleClearance: 18,
+    obstacleInfluenceScale: 2.0,
+    obstaclePush: 2.1,
+    obstacleInsideCorrection: 0.55,
+    obstacleNormalDamping: 0.65,
+    obstacleInsideDamping: 0.35,
+    obstacleEpsilon: 0.001,
+    spawnInset: 170,
+    basePoints: 28,
+    jitter: 2.0,
+    spring: 0.52,
+    damping: 0.9,
+    wobbleAmp: 0.2,
+    wobbleRateX: 0.005,
+    wobbleRateY: 0.004,
   };
 
-  const insertDistance = SETTINGS.insertDistancePx;
-  const separationDistance = insertDistance * SETTINGS.separationRatio;
-  const maxPoints = SETTINGS.maxPoints;
-  const obstaclePadding = SETTINGS.obstaclePaddingPx;
-  const obstacleClearance = SETTINGS.obstacleClearancePx;
+  let nodes = [];
+  let warpReady = false;
+  let started = false;
+
+  class Point {
+    constructor(x, y, userData) {
+      this.x = x;
+      this.y = y;
+      this.userData = userData;
+    }
+  }
+
+  class Rect {
+    constructor(x, y, w, h) {
+      this.x = x;
+      this.y = y;
+      this.w = w;
+      this.h = h;
+    }
+    contains(p) {
+      return p.x >= this.x - this.w && p.x <= this.x + this.w && p.y >= this.y - this.h && p.y <= this.y + this.h;
+    }
+    intersects(range) {
+      if (range instanceof Circle) {
+        const xDist = Math.abs(range.x - this.x);
+        const yDist = Math.abs(range.y - this.y);
+        const rw = this.w;
+        const rh = this.h;
+        const r = range.r;
+        if (xDist > rw + r || yDist > rh + r) return false;
+        if (xDist <= rw || yDist <= rh) return true;
+        const dx = xDist - rw;
+        const dy = yDist - rh;
+        return dx * dx + dy * dy <= r * r;
+      }
+      return !(
+        range.x - range.w > this.x + this.w ||
+        range.x + range.w < this.x - this.w ||
+        range.y - range.h > this.y + this.h ||
+        range.y + range.h < this.y - this.h
+      );
+    }
+  }
+
+  class Circle {
+    constructor(x, y, r) {
+      this.x = x;
+      this.y = y;
+      this.r = r;
+      this.r2 = r * r;
+    }
+    contains(p) {
+      const dx = p.x - this.x;
+      const dy = p.y - this.y;
+      return dx * dx + dy * dy <= this.r2;
+    }
+  }
+
+  class QuadTree {
+    constructor(boundary, capacity) {
+      this.boundary = boundary;
+      this.capacity = capacity;
+      this.points = [];
+      this.divided = false;
+      this.northwest = null;
+      this.northeast = null;
+      this.southwest = null;
+      this.southeast = null;
+    }
+    clear() {
+      this.points.length = 0;
+      this.divided = false;
+      this.northwest = null;
+      this.northeast = null;
+      this.southwest = null;
+      this.southeast = null;
+    }
+    subdivide() {
+      const x = this.boundary.x;
+      const y = this.boundary.y;
+      const w = this.boundary.w / 2;
+      const h = this.boundary.h / 2;
+      this.northeast = new QuadTree(new Rect(x + w, y - h, w, h), this.capacity);
+      this.northwest = new QuadTree(new Rect(x - w, y - h, w, h), this.capacity);
+      this.southeast = new QuadTree(new Rect(x + w, y + h, w, h), this.capacity);
+      this.southwest = new QuadTree(new Rect(x - w, y + h, w, h), this.capacity);
+      this.divided = true;
+    }
+    insert(point) {
+      if (!this.boundary.contains(point)) {
+        return false;
+      }
+      if (this.points.length < this.capacity) {
+        this.points.push(point);
+        return true;
+      }
+      if (!this.divided) {
+        this.subdivide();
+      }
+      return (
+        this.northwest.insert(point) ||
+        this.northeast.insert(point) ||
+        this.southwest.insert(point) ||
+        this.southeast.insert(point)
+      );
+    }
+    query(range, found) {
+      if (!this.boundary.intersects(range)) {
+        return found;
+      }
+      for (let i = 0; i < this.points.length; i += 1) {
+        if (range.contains(this.points[i])) {
+          found.push(this.points[i]);
+        }
+      }
+      if (this.divided) {
+        this.northwest.query(range, found);
+        this.northeast.query(range, found);
+        this.southwest.query(range, found);
+        this.southeast.query(range, found);
+      }
+      return found;
+    }
+  }
 
   function clamp(v, lo, hi) {
     return Math.min(hi, Math.max(lo, v));
   }
 
-  function distance(a, b) {
-    return Math.hypot(b.x - a.x, b.y - a.y);
-  }
-
-  function centroid(poly) {
-    let sx = 0;
-    let sy = 0;
-    for (let i = 0; i < poly.length; i += 1) {
-      sx += poly[i].x;
-      sy += poly[i].y;
+  function handlesHaveCoordinates() {
+    const handles = Array.from(stage.querySelectorAll(".handle"));
+    if (handles.length !== 4) {
+      return false;
     }
-    return { x: sx / poly.length, y: sy / poly.length };
+    return handles.every((h) => Number.isFinite(parseFloat(h.style.left)) && Number.isFinite(parseFloat(h.style.top)));
   }
 
   function getFallbackQuad() {
@@ -76,32 +178,31 @@
   }
 
   function getWarpedQuad() {
-    const handles = Array.from(stage.querySelectorAll(".handle")).sort(
-      (a, b) => Number(a.dataset.i) - Number(b.dataset.i)
-    );
-
+    const handles = Array.from(stage.querySelectorAll(".handle")).sort((a, b) => Number(a.dataset.i) - Number(b.dataset.i));
     if (handles.length !== 4) {
       return getFallbackQuad();
     }
-
-    const pts = handles.map((h) => {
-      const x = parseFloat(h.style.left);
-      const y = parseFloat(h.style.top);
-      return { x, y };
-    });
-
-    const valid = pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-    return valid ? pts : getFallbackQuad();
+    const pts = handles.map((h) => ({ x: parseFloat(h.style.left), y: parseFloat(h.style.top) }));
+    return pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) ? pts : getFallbackQuad();
   }
 
-  function expandQuad(quad, padding) {
+  function centroid(poly) {
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < poly.length; i += 1) {
+      sx += poly[i].x;
+      sy += poly[i].y;
+    }
+    return { x: sx / poly.length, y: sy / poly.length };
+  }
+
+  function expandQuad(quad, pad) {
     const c = centroid(quad);
     return quad.map((p) => {
       const dx = p.x - c.x;
       const dy = p.y - c.y;
       const len = Math.hypot(dx, dy) || 1;
-      const scale = (len + padding) / len;
-      return { x: c.x + dx * scale, y: c.y + dy * scale };
+      return { x: c.x + (dx / len) * (len + pad), y: c.y + (dy / len) * (len + pad) };
     });
   }
 
@@ -112,371 +213,320 @@
       const yi = poly[i].y;
       const xj = poly[j].x;
       const yj = poly[j].y;
-
-      const intersect =
-        yi > pt.y !== yj > pt.y &&
-        pt.x < ((xj - xi) * (pt.y - yi)) / ((yj - yi) || 1e-9) + xi;
-      if (intersect) {
-        inside = !inside;
-      }
+      const hit = yi > pt.y !== yj > pt.y && pt.x < ((xj - xi) * (pt.y - yi)) / ((yj - yi) || 1e-9) + xi;
+      if (hit) inside = !inside;
     }
     return inside;
   }
 
-  function closestPointOnSegment(p, a, b) {
+  function nearestPointOnSegment(p, a, b) {
     const abx = b.x - a.x;
     const aby = b.y - a.y;
-    const apx = p.x - a.x;
-    const apy = p.y - a.y;
-    const ab2 = abx * abx + aby * aby || 1;
-    const t = clamp((apx * abx + apy * aby) / ab2, 0, 1);
+    const t = clamp(((p.x - a.x) * abx + (p.y - a.y) * aby) / (abx * abx + aby * aby || 1), 0, 1);
     return { x: a.x + abx * t, y: a.y + aby * t };
   }
 
   function nearestPointOnPolygon(p, poly) {
     let best = null;
     let bestD2 = Infinity;
+    let bestA = null;
+    let bestB = null;
     for (let i = 0; i < poly.length; i += 1) {
       const a = poly[i];
       const b = poly[(i + 1) % poly.length];
-      const c = closestPointOnSegment(p, a, b);
-      const dx = p.x - c.x;
-      const dy = p.y - c.y;
+      const q = nearestPointOnSegment(p, a, b);
+      const dx = p.x - q.x;
+      const dy = p.y - q.y;
       const d2 = dx * dx + dy * dy;
       if (d2 < bestD2) {
         bestD2 = d2;
-        best = c;
+        best = q;
+        bestA = a;
+        bestB = b;
       }
     }
-    return best;
+    if (!best) {
+      return null;
+    }
+    return { point: best, edgeA: bestA, edgeB: bestB };
   }
 
-  function getObstacleShape() {
+  function polygonArea(poly) {
+    let area = 0;
+    for (let i = 0; i < poly.length; i += 1) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      area += a.x * b.y - b.x * a.y;
+    }
+    return area * 0.5;
+  }
+
+  function getObstacle() {
     const raw = getWarpedQuad();
     const center = centroid(raw);
-    const poly = expandQuad(raw, obstaclePadding);
-
     let radiusX = 0;
     let radiusY = 0;
     for (let i = 0; i < raw.length; i += 1) {
       radiusX = Math.max(radiusX, Math.abs(raw[i].x - center.x));
       radiusY = Math.max(radiusY, Math.abs(raw[i].y - center.y));
     }
-
     return {
-      poly,
       center,
       radiusX,
       radiusY,
+      poly: expandQuad(raw, CFG.obstaclePadding),
+      winding: polygonArea(raw) >= 0 ? 1 : -1,
     };
   }
 
-  function pushAwayFromEdges(node) {
-    const soft = SETTINGS.edgeSoftMarginPx;
+  function spawnLoop(obstacle, p) {
+    const w = p.width;
+    const h = p.height;
+    const cx = obstacle.center.x;
+    const cy = obstacle.center.y;
+    const maxRx = Math.max(120, Math.min(cx - CFG.spawnInset, w - cx - CFG.spawnInset));
+    const maxRy = Math.max(90, Math.min(cy - CFG.spawnInset, h - cy - CFG.spawnInset));
+    const minRx = obstacle.radiusX + CFG.obstacleClearance + 24;
+    const minRy = obstacle.radiusY + CFG.obstacleClearance + 24;
+    const rx = clamp(maxRx * 0.78, minRx, Math.max(minRx, maxRx));
+    const ry = clamp(maxRy * 0.78, minRy, Math.max(minRy, maxRy));
+    const count = Math.max(CFG.basePoints, Math.floor((2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2)) / 54));
 
-    if (node.x < soft) {
-      const d = soft - node.x;
-      node.x += d * 0.22;
-      node.vx = Math.max(node.vx, 0);
-    }
-    if (node.x > canvas.width - soft) {
-      const d = node.x - (canvas.width - soft);
-      node.x -= d * 0.22;
-      node.vx = Math.min(node.vx, 0);
-    }
-    if (node.y < soft) {
-      const d = soft - node.y;
-      node.y += d * 0.22;
-      node.vy = Math.max(node.vy, 0);
-    }
-    if (node.y > canvas.height - soft) {
-      const d = node.y - (canvas.height - soft);
-      node.y -= d * 0.22;
-      node.vy = Math.min(node.vy, 0);
+    nodes = [];
+    for (let i = 0; i < count; i += 1) {
+      const a = (i / count) * Math.PI * 2;
+      nodes.push({
+        pos: p.createVector(cx + Math.cos(a) * rx + Math.sin(i * 0.7) * CFG.jitter, cy + Math.sin(a) * ry + Math.cos(i * 0.5) * CFG.jitter),
+        vel: p.createVector(0, 0),
+      });
     }
   }
 
-  function pushOutsideObstacle(node, obstacle) {
-    const nearest = nearestPointOnPolygon(node, obstacle.poly);
-    const inside = pointInPolygon(node, obstacle.poly);
+  function avoidEdges(node, p) {
+    const s = CFG.edgeSoftMargin;
+    if (node.pos.x < s) {
+      node.pos.x += (s - node.pos.x) * 0.25;
+      node.vel.x = Math.max(0, node.vel.x);
+    }
+    if (node.pos.x > p.width - s) {
+      node.pos.x -= (node.pos.x - (p.width - s)) * 0.25;
+      node.vel.x = Math.min(0, node.vel.x);
+    }
+    if (node.pos.y < s) {
+      node.pos.y += (s - node.pos.y) * 0.25;
+      node.vel.y = Math.max(0, node.vel.y);
+    }
+    if (node.pos.y > p.height - s) {
+      node.pos.y -= (node.pos.y - (p.height - s)) * 0.25;
+      node.vel.y = Math.min(0, node.vel.y);
+    }
+  }
 
+  function avoidObstacle(node, obstacle) {
+    const here = { x: node.pos.x, y: node.pos.y };
+    const nearest = nearestPointOnPolygon(here, obstacle.poly);
     if (!nearest) {
       return;
     }
 
-    const dx = node.x - nearest.x;
-    const dy = node.y - nearest.y;
+    const dx = here.x - nearest.point.x;
+    const dy = here.y - nearest.point.y;
     const d = Math.hypot(dx, dy);
+    const influence = CFG.obstacleClearance * CFG.obstacleInfluenceScale;
+    const inside = pointInPolygon(here, obstacle.poly);
+
+    // Edge normal with winding-aware orientation. For screen-space coordinates,
+    // this gives a stable outward direction around the obstacle polygon.
+    const ex = nearest.edgeB.x - nearest.edgeA.x;
+    const ey = nearest.edgeB.y - nearest.edgeA.y;
+    let nx;
+    let ny;
+    if (obstacle.winding >= 0) {
+      nx = ey;
+      ny = -ex;
+    } else {
+      nx = -ey;
+      ny = ex;
+    }
+    const nLen = Math.hypot(nx, ny);
+    if (nLen > CFG.obstacleEpsilon) {
+      nx /= nLen;
+      ny /= nLen;
+    } else {
+      const ox = nearest.point.x - obstacle.center.x;
+      const oy = nearest.point.y - obstacle.center.y;
+      const oLen = Math.hypot(ox, oy) || 1;
+      nx = ox / oLen;
+      ny = oy / oLen;
+    }
+
+    // Ensure normal points away from center for consistency.
+    const cx = nearest.point.x - obstacle.center.x;
+    const cy = nearest.point.y - obstacle.center.y;
+    if (nx * cx + ny * cy < 0) {
+      nx *= -1;
+      ny *= -1;
+    }
 
     if (inside) {
-      const ox = nearest.x - obstacle.center.x;
-      const oy = nearest.y - obstacle.center.y;
-      const olen = Math.hypot(ox, oy) || 1;
-      node.x = nearest.x + (ox / olen) * obstacleClearance;
-      node.y = nearest.y + (oy / olen) * obstacleClearance;
-      node.vx *= 0.25;
-      node.vy *= 0.25;
+      const tx = nearest.point.x + nx * CFG.obstacleClearance;
+      const ty = nearest.point.y + ny * CFG.obstacleClearance;
+      node.pos.x += (tx - node.pos.x) * CFG.obstacleInsideCorrection;
+      node.pos.y += (ty - node.pos.y) * CFG.obstacleInsideCorrection;
+      node.vel.mult(CFG.obstacleInsideDamping);
       return;
     }
 
-    if (d > 0 && d < obstacleClearance) {
-      const strength = (obstacleClearance - d) / obstacleClearance;
-      node.x += (dx / d) * strength * 5.0;
-      node.y += (dy / d) * strength * 5.0;
-    }
-  }
+    if (d < influence) {
+      const t = 1 - d / influence;
+      const falloff = t * t;
+      const dirX = d > CFG.obstacleEpsilon ? dx / d : nx;
+      const dirY = d > CFG.obstacleEpsilon ? dy / d : ny;
 
-  function buildSpawnLoop(obstacle) {
-    const w = canvas.width;
-    const h = canvas.height;
-    const cx = obstacle.center.x;
-    const cy = obstacle.center.y;
-
-    const inset = SETTINGS.spawnInsetPx;
-    const maxRx = Math.max(120, Math.min(cx - inset, w - cx - inset));
-    const maxRy = Math.max(90, Math.min(cy - inset, h - cy - inset));
-
-    const minRx = obstacle.radiusX + obstacleClearance + 36;
-    const minRy = obstacle.radiusY + obstacleClearance + 36;
-
-    const rx = clamp(maxRx * 0.74, minRx, Math.max(minRx, maxRx));
-    const ry = clamp(maxRy * 0.74, minRy, Math.max(minRy, maxRy));
-
-    const perimeter = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) * 0.5);
-    const points = Math.max(24, Math.floor(perimeter / 52));
-    const out = [];
-
-    for (let i = 0; i < points; i += 1) {
-      const a = (i / points) * Math.PI * 2;
-      out.push({
-        x: cx + Math.cos(a) * rx + Math.sin(i * 0.63) * 2.0,
-        y: cy + Math.sin(a) * ry + Math.cos(i * 0.47) * 2.0,
-        vx: 0,
-        vy: 0,
-      });
-    }
-
-    return out;
-  }
-
-  function ensureCanvasSize() {
-    const w = Math.max(1, window.innerWidth);
-    const h = Math.max(1, window.innerHeight);
-
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-      if (nodes.length === 0) {
-        nodes = buildSpawnLoop(getObstacleShape());
-      }
-    }
-  }
-
-  function buildSpatialHash(cellSize) {
-    const buckets = new Map();
-    for (let i = 0; i < nodes.length; i += 1) {
-      const n = nodes[i];
-      const cx = Math.floor(n.x / cellSize);
-      const cy = Math.floor(n.y / cellSize);
-      const key = `${cx},${cy}`;
-      const list = buckets.get(key);
-      if (list) {
-        list.push(i);
-      } else {
-        buckets.set(key, [i]);
-      }
-    }
-    return buckets;
-  }
-
-  function updateNodes() {
-    const obstacle = getObstacleShape();
-    const cellSize = separationDistance;
-    const sep2 = separationDistance * separationDistance;
-    const buckets = buildSpatialHash(cellSize);
-    const next = new Array(nodes.length);
-
-    for (let i = 0; i < nodes.length; i += 1) {
-      const node = nodes[i];
-      const cx = Math.floor(node.x / cellSize);
-      const cy = Math.floor(node.y / cellSize);
-
-      let fx = 0;
-      let fy = 0;
-
-      for (let ox = -1; ox <= 1; ox += 1) {
-        for (let oy = -1; oy <= 1; oy += 1) {
-          const key = `${cx + ox},${cy + oy}`;
-          const candidates = buckets.get(key);
-          if (!candidates) {
-            continue;
-          }
-          for (let k = 0; k < candidates.length; k += 1) {
-            const j = candidates[k];
-            if (j === i) {
-              continue;
-            }
-            const other = nodes[j];
-            const dx = node.x - other.x;
-            const dy = node.y - other.y;
-            const d2 = dx * dx + dy * dy;
-            if (d2 === 0 || d2 >= sep2) {
-              continue;
-            }
-            const d = Math.sqrt(d2);
-            const strength = (separationDistance - d) / separationDistance;
-            fx += (dx / d) * strength;
-            fy += (dy / d) * strength;
-          }
-        }
+      // Dampen inward normal velocity to remove high-frequency chatter.
+      const vn = node.vel.x * dirX + node.vel.y * dirY;
+      if (vn < 0) {
+        node.vel.x -= dirX * vn * CFG.obstacleNormalDamping;
+        node.vel.y -= dirY * vn * CFG.obstacleNormalDamping;
       }
 
-      // Mild line tension keeps the shape smooth while still allowing wobble.
-      const prev = nodes[(i - 1 + nodes.length) % nodes.length];
-      const nextNode = nodes[(i + 1) % nodes.length];
-      const midX = (prev.x + nextNode.x) * 0.5;
-      const midY = (prev.y + nextNode.y) * 0.5;
-      fx += (midX - node.x) * SETTINGS.neighborSpring;
-      fy += (midY - node.y) * SETTINGS.neighborSpring;
-
-      // Push outward from the warped player center to stay around the outside.
-      const pcx = node.x - obstacle.center.x;
-      const pcy = node.y - obstacle.center.y;
-      const plen = Math.hypot(pcx, pcy) || 1;
-      fx += (pcx / plen) * SETTINGS.outwardForce;
-      fy += (pcy / plen) * SETTINGS.outwardForce;
-
-      // Slower, larger wobble for a cleaner oscilloscope feel.
-      fx += Math.sin(tick * SETTINGS.wobbleSpeedX + i * SETTINGS.wobblePhaseX) * SETTINGS.wobbleForce;
-      fy += Math.cos(tick * SETTINGS.wobbleSpeedY + i * SETTINGS.wobblePhaseY) * SETTINGS.wobbleForce;
-
-      const vx = (node.vx + fx * SETTINGS.velocityGain) * SETTINGS.velocityDamping;
-      const vy = (node.vy + fy * SETTINGS.velocityGain) * SETTINGS.velocityDamping;
-
-      const updated = {
-        x: clamp(node.x + vx, SETTINGS.edgeHardMarginPx, canvas.width - SETTINGS.edgeHardMarginPx),
-        y: clamp(node.y + vy, SETTINGS.edgeHardMarginPx, canvas.height - SETTINGS.edgeHardMarginPx),
-        vx,
-        vy,
-      };
-
-      pushAwayFromEdges(updated);
-      pushOutsideObstacle(updated, obstacle);
-      next[i] = updated;
+      const push = falloff * CFG.obstaclePush;
+      node.pos.x += dirX * push;
+      node.pos.y += dirY * push;
     }
-
-    nodes = next;
   }
 
-  function insertNodes() {
-    if (nodes.length >= maxPoints) {
+  function insertNodes(p, obstacle) {
+    if (nodes.length >= CFG.maxPoints) {
       return;
     }
-
-    const obstacle = getObstacleShape();
-    let i = 0;
-
-    while (i < nodes.length && nodes.length < maxPoints) {
-      const n1 = nodes[i];
-      const n2 = nodes[(i + 1) % nodes.length];
-
-      if (distance(n1, n2) > insertDistance) {
-        const mid = {
-          x: (n1.x + n2.x) * 0.5,
-          y: (n1.y + n2.y) * 0.5,
-          vx: (n1.vx + n2.vx) * 0.5,
-          vy: (n1.vy + n2.vy) * 0.5,
-        };
-        pushOutsideObstacle(mid, obstacle);
-        nodes.splice(i + 1, 0, mid);
-        i += 2;
-      } else {
+    for (let i = 0; i < nodes.length && nodes.length < CFG.maxPoints; i += 1) {
+      const a = nodes[i].pos;
+      const b = nodes[(i + 1) % nodes.length].pos;
+      if (p5.Vector.dist(a, b) > CFG.insertDistance) {
+        const mid = p5.Vector.add(a, b).mult(0.5);
+        const newNode = { pos: mid.copy(), vel: p.createVector(0, 0) };
+        avoidObstacle(newNode, obstacle);
+        nodes.splice(i + 1, 0, newNode);
         i += 1;
       }
     }
   }
 
-  function drawLoop() {
-    if (nodes.length < 2) {
-      return;
-    }
+  const sketch = (p) => {
+    let qt = null;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.beginPath();
-    ctx.moveTo(nodes[0].x, nodes[0].y);
-    for (let i = 1; i < nodes.length; i += 1) {
-      ctx.lineTo(nodes[i].x, nodes[i].y);
-    }
-    ctx.closePath();
+    p.setup = () => {
+      const c = p.createCanvas(window.innerWidth, window.innerHeight);
+      c.parent(stage);
+      c.id("growth-canvas");
+      c.style("position", "absolute");
+      c.style("inset", "0");
+      c.style("width", "100%");
+      c.style("height", "100%");
+      c.style("pointer-events", "none");
+      c.style("z-index", "0");
+      qt = new QuadTree(new Rect(p.width / 2, p.height / 2, p.width / 2, p.height / 2), 10);
+      p.frameRate(60);
+      p.noFill();
+      p.stroke(255, 235);
+      p.strokeWeight(1.6);
+    };
 
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-  }
+    p.windowResized = () => {
+      p.resizeCanvas(window.innerWidth, window.innerHeight);
+      if (started) {
+        spawnLoop(getObstacle(), p);
+      }
+    };
 
-  function frame() {
-    tick += 1;
-    ensureCanvasSize();
-    updateNodes();
-    insertNodes();
-    drawLoop();
-    rafId = window.requestAnimationFrame(frame);
-  }
+    p.draw = () => {
+      p.clear();
 
-  function start() {
-    ensureCanvasSize();
-    if (nodes.length === 0) {
-      nodes = buildSpawnLoop(getObstacleShape());
-    }
-    if (!rafId) {
-      rafId = window.requestAnimationFrame(frame);
-    }
-  }
+      if (!warpReady && handlesHaveCoordinates()) {
+        warpReady = true;
+      }
+      if (!warpReady) {
+        return;
+      }
 
-  function stop() {
-    if (rafId) {
-      window.cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-  }
+      if (!started || nodes.length < 3) {
+        spawnLoop(getObstacle(), p);
+        started = true;
+      }
 
-  function handlesHaveCoordinates() {
-    const handles = Array.from(stage.querySelectorAll(".handle"));
-    if (handles.length !== 4) {
-      return false;
-    }
-    return handles.every((h) => {
-      const x = parseFloat(h.style.left);
-      const y = parseFloat(h.style.top);
-      return Number.isFinite(x) && Number.isFinite(y);
-    });
-  }
+      const obstacle = getObstacle();
+      qt = new QuadTree(new Rect(p.width / 2, p.height / 2, p.width / 2, p.height / 2), 10);
 
-  function startWhenWarpReady() {
-    if (warpReady) {
-      start();
-      return;
-    }
-    if (handlesHaveCoordinates()) {
+      for (let i = 0; i < nodes.length; i += 1) {
+        qt.insert(new Point(nodes[i].pos.x, nodes[i].pos.y, i));
+      }
+
+      for (let i = 0; i < nodes.length; i += 1) {
+        const node = nodes[i];
+        const prev = nodes[(i - 1 + nodes.length) % nodes.length];
+        const next = nodes[(i + 1) % nodes.length];
+
+        const neighbors = [];
+        qt.query(new Circle(node.pos.x, node.pos.y, CFG.separationDistance), neighbors);
+
+        const f = p.createVector(0, 0);
+
+        for (let n = 0; n < neighbors.length; n += 1) {
+          const j = neighbors[n].userData;
+          if (j === i) {
+            continue;
+          }
+          const other = nodes[j];
+          const d = p5.Vector.dist(node.pos, other.pos);
+          if (d > 0 && d < CFG.separationDistance) {
+            const away = p5.Vector.sub(node.pos, other.pos).normalize();
+            away.mult((CFG.separationDistance - d) / CFG.separationDistance);
+            f.add(away);
+          }
+        }
+
+        const mid = p5.Vector.add(prev.pos, next.pos).mult(0.5);
+        f.add(p5.Vector.sub(mid, node.pos).mult(CFG.spring));
+
+        const outward = p5.Vector.sub(node.pos, p.createVector(obstacle.center.x, obstacle.center.y));
+        if (outward.magSq() > 0) {
+          outward.normalize().mult(0.065);
+          f.add(outward);
+        }
+
+        f.x += Math.sin(p.frameCount * CFG.wobbleRateX + i * 0.71) * CFG.wobbleAmp;
+        f.y += Math.cos(p.frameCount * CFG.wobbleRateY + i * 0.57) * CFG.wobbleAmp;
+
+        node.vel.add(f.mult(0.35));
+        node.vel.mult(CFG.damping);
+        node.pos.add(node.vel);
+
+        node.pos.x = clamp(node.pos.x, CFG.edgeHardMargin, p.width - CFG.edgeHardMargin);
+        node.pos.y = clamp(node.pos.y, CFG.edgeHardMargin, p.height - CFG.edgeHardMargin);
+
+        avoidEdges(node, p);
+        avoidObstacle(node, obstacle);
+      }
+
+      insertNodes(p, obstacle);
+
+      p.beginShape();
+      for (let i = 0; i < nodes.length; i += 1) {
+        p.vertex(nodes[i].pos.x, nodes[i].pos.y);
+      }
+      p.endShape(p.CLOSE);
+    };
+  };
+
+  window.addEventListener(
+    "warp:ready",
+    () => {
       warpReady = true;
-      start();
-      return;
-    }
-    window.requestAnimationFrame(startWhenWarpReady);
-  }
+      started = false;
+    },
+    { once: false }
+  );
 
-  window.addEventListener("resize", ensureCanvasSize);
-  window.addEventListener("warp:ready", () => {
-    warpReady = true;
-    start();
-  }, { once: true });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      stop();
-    } else {
-      startWhenWarpReady();
-    }
-  });
-
-  startWhenWarpReady();
+  new p5(sketch);
 })();
