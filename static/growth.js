@@ -10,8 +10,9 @@
     insertDistance: 10,
     removeDistance: 3,
     separationDistance: 40,
-    maxPoints: 2000,
-    minPoints: 400,
+    maxPoints: 400,
+    minPoints: 200,
+    removePointsShuffle: true,
     edgeSoftMargin: 14,
     edgeHardMargin: 4,
     obstaclePadding: 10,
@@ -31,11 +32,39 @@
     wobbleAmp: 0.2,
     wobbleRateX: 0.5,
     wobbleRateY: 0.004,
+    outwardForce: 0.065,
+    velocityScale: 0.35,
   };
+
+  const DEFAULT_CFG = { ...CFG };
 
   let nodes = [];
   let warpReady = false;
   let started = false;
+
+  // config applied while paused/stopped, restoring live values on resume
+  let isPaused = false;
+
+  window.addEventListener("playback:state", (e) => {
+    isPaused = e.detail === "pause" || e.detail === "stop";
+    console.log("Playback state changed:", e.detail);
+    if (isPaused) {
+      CFG.spring = 0.999
+      CFG.damping = .8
+      CFG.removeDistance = 10;
+      CFG.maxPoints = 200;
+      CFG.minPoints = 200;
+      CFG.separationDistance = 1;
+      CFG.wobbleAmp = 0;
+      CFG.outwardForce = 0;
+      CFG.obstacleClearance = 6;
+      CFG.obstaclePush = 1.0;
+      CFG.obstacleNormalDamping = 0.9;
+      console.log("Paused: CFG updated", CFG);
+    } else {
+      Object.assign(CFG, DEFAULT_CFG);
+    }
+  });
 
   const mapRange = (value, inMin, inMax, outMin, outMax) => 
   ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
@@ -43,19 +72,22 @@
   const baseSeparationDistance = CFG.separationDistance;
   const audioWs = new WebSocket(`ws://${location.host}/audio-ws`);
   audioWs.onmessage = (e) => {
+    if (isPaused) {
+      return;
+    }
     const norm_rms = JSON.parse(e.data).norm_rms;
     // low frequency audio response - avg of bottom 10 bins
-    const low = JSON.parse(e.data).norm_bands.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+    const low = JSON.parse(e.data).norm_bands.slice(0, 10).reduce((a, b) => a + b, 0) / 10;
     // mid - avg of middle 12 bins
     const mid = JSON.parse(e.data).norm_bands.slice(10, 22).reduce((a, b) => a + b, 0) / 12;
     // high frequency audio response - avg of top 10 bins
     const high = JSON.parse(e.data).norm_bands.slice(22).reduce((a, b) => a + b, 0) / 10;
-    console.log("low:", low, "mid:", mid, "high:", high);
+    // console.log("low:", low, "mid:", mid, "high:", high);
 
-    CFG.spring = mapRange(high, 0, 1, .5, .8)
-    CFG.damping = mapRange(norm_rms, 0, 1, 0.8, .95)
-    // CFG.wobbleAmp = mapRange(high, 0, 1, .1, 3);
-    CFG.removeDistance = mapRange(low, 0, 1, 1, 13);
+    CFG.spring = mapRange(high, 0, 1, .5, .9)
+    CFG.damping = mapRange(norm_rms, 0, 1, 0.9, .95)
+    CFG.wobbleAmp = mapRange(high, 0, 1, .1, 3);
+    CFG.removeDistance = mapRange(low, 0, 1, 0, 20);
     // console.log("audio data full:", JSON.parse(e.data));
   };
 
@@ -286,8 +318,7 @@
     return area * 0.5;
   }
 
-  function getObstacle() {
-    const raw = getWarpedQuad();
+  function quadToObstacle(raw) {
     const center = centroid(raw);
     let radiusX = 0;
     let radiusY = 0;
@@ -295,14 +326,38 @@
       radiusX = Math.max(radiusX, Math.abs(raw[i].x - center.x));
       radiusY = Math.max(radiusY, Math.abs(raw[i].y - center.y));
     }
-    return {
-      center,
-      radiusX,
-      radiusY,
-      poly: expandQuad(raw, CFG.obstaclePadding),
-      winding: polygonArea(raw) >= 0 ? 1 : -1,
-    };
+    return { center, radiusX, radiusY, poly: expandQuad(raw, CFG.obstaclePadding), winding: polygonArea(raw) >= 0 ? 1 : -1 };
   }
+
+  function getObstacle() {
+    return quadToObstacle(getWarpedQuad());
+  }
+
+  let extraObstacles = [];
+
+  function addExtraObstacle(cx, cy) {
+    const corners = [{ x: cx - 75, y: cy - 50 }, { x: cx + 75, y: cy - 50 }, { x: cx + 75, y: cy + 50 }, { x: cx - 75, y: cy + 50 }];
+    corners.forEach((pt, i) => {
+      const h = document.createElement("div");
+      h.className = "handle";
+      h.style.left = pt.x + "px";
+      h.style.top = pt.y + "px";
+      stage.appendChild(h);
+      h.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        h.setPointerCapture(e.pointerId);
+        const move = (ev) => { corners[i] = { x: ev.clientX, y: ev.clientY }; h.style.left = ev.clientX + "px"; h.style.top = ev.clientY + "px"; };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", () => window.removeEventListener("pointermove", move), { once: true });
+      });
+    });
+    extraObstacles.push({ corners, color: "red" });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "o") addExtraObstacle(window.innerWidth / 2, window.innerHeight / 2);
+    if (e.key === "h") extraObstacles.forEach((o) => (o.color = o.color === "red" ? "black" : "red"));
+  });
 
   function spawnLoop(obstacle, p) {
     const w = p.width;
@@ -438,7 +493,7 @@
     }
   }
 
-  function removeNodes() {
+  function removeNodesSweep() {
     for (let i = 0; i < nodes.length && nodes.length > CFG.minPoints; i += 1) {
       const a = nodes[i].pos;
       const b = nodes[(i + 1) % nodes.length].pos;
@@ -446,6 +501,38 @@
         nodes.splice(i, 1);
         i -= 1;
       }
+    }
+  }
+
+  function removeNodesShuffle() {
+    const budget = nodes.length - CFG.minPoints;
+    if (budget <= 0) {
+      return;
+    }
+    const candidates = [];
+    for (let i = 0; i < nodes.length; i += 1) {
+      const a = nodes[i].pos;
+      const b = nodes[(i + 1) % nodes.length].pos;
+      if (p5.Vector.dist(a, b) < CFG.removeDistance) {
+        candidates.push(i);
+      }
+    }
+    // shuffle so removals aren't a contiguous sweep, which caused a traveling wave
+    for (let i = candidates.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    const toRemove = candidates.slice(0, budget).sort((a, b) => b - a);
+    for (let i = 0; i < toRemove.length; i += 1) {
+      nodes.splice(toRemove[i], 1);
+    }
+  }
+
+  function removeNodes() {
+    if (CFG.removePointsShuffle) {
+      removeNodesShuffle();
+    } else {
+      removeNodesSweep();
     }
   }
 
@@ -492,6 +579,7 @@
       }
 
       const obstacle = getObstacle();
+      const obstacles = extraObstacles.map((o) => ({ ...quadToObstacle(o.corners), color: o.color }));
       qt = new QuadTree(new Rect(p.width / 2, p.height / 2, p.width / 2, p.height / 2), 10);
 
       for (let i = 0; i < nodes.length; i += 1) {
@@ -526,15 +614,15 @@
         f.add(p5.Vector.sub(mid, node.pos).mult(CFG.spring));
 
         const outward = p5.Vector.sub(node.pos, p.createVector(obstacle.center.x, obstacle.center.y));
-        if (outward.magSq() > 0) {
-          outward.normalize().mult(0.065);
+        if (outward.magSq() > 0 && CFG.outwardForce > 0) {
+          outward.normalize().mult(CFG.outwardForce);
           f.add(outward);
         }
 
         f.x += Math.sin(p.frameCount * CFG.wobbleRateX + i * 0.71) * CFG.wobbleAmp;
         f.y += Math.cos(p.frameCount * CFG.wobbleRateY + i * 0.57) * CFG.wobbleAmp;
 
-        node.vel.add(f.mult(0.35));
+        node.vel.add(f.mult(CFG.velocityScale));
         node.vel.mult(CFG.damping);
         node.pos.add(node.vel);
 
@@ -543,6 +631,7 @@
 
         avoidEdges(node, p);
         avoidObstacle(node, obstacle);
+        obstacles.forEach((ob) => avoidObstacle(node, ob));
       }
 
       insertNodes(p, obstacle);
@@ -553,6 +642,14 @@
         p.vertex(nodes[i].pos.x, nodes[i].pos.y);
       }
       p.endShape(p.CLOSE);
+
+      obstacles.forEach((ob) => {
+        p.stroke(ob.color === "red" ? "red" : "black");
+        p.beginShape();
+        ob.poly.forEach((pt) => p.vertex(pt.x, pt.y));
+        p.endShape(p.CLOSE);
+      });
+      p.stroke(255, 235);
     };
   };
 

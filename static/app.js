@@ -154,6 +154,7 @@ ws.onmessage = function(event) {
         });
         currentState = state;
         updateUI(state);
+        window.dispatchEvent(new CustomEvent('playback:state', { detail: state.playback_state }));
     } catch (e) {
         console.error("Error parsing websocket message:", e);
     }

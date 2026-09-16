@@ -22,7 +22,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.middleware("http")
 async def no_cache_html_css(request, call_next):
     response = await call_next(request)
-    if request.url.path.endswith((".html", ".css")):
+    if request.url.path.endswith((".html", ".css", ".js")):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -36,29 +36,7 @@ if _debug := os.getenv("DEBUG"):
     app.add_event_handler("startup", hot_reload.startup)
     app.add_event_handler("shutdown", hot_reload.shutdown)
 
-# Store active websocket connections
-active_connections = []
-audio_connections = []
-_audio_window = deque(maxlen=200)  # lookback window size (blocks), adjust to change smoothing
-_band_window = deque(maxlen=200)  # per-band history for individual normalization
-_audio_stream = None
-_audio_loop = None
-band_count = 32  # number of frequency bands for FFT analysis
 
-def _audio_callback(indata, frames, t, status):
-    mono = indata.astype(np.float32).mean(axis=1) / 2147483648.0  # normalize S32_LE to match shairport's tap format
-    mag = np.abs(np.fft.rfft(mono * np.hanning(len(mono))))
-    bands = [float(b.mean()) for b in np.array_split(mag, band_count)]
-    rms = float(np.sqrt(np.mean(mono ** 2)))
-    _audio_window.append(rms); lo, hi = min(_audio_window), max(_audio_window)
-    norm_rms = (rms - lo) / (hi - lo) if hi > lo else 0.0
-    _band_window.append(bands)
-    band_arr = np.array(_band_window)
-    band_lo, band_hi = band_arr.min(axis=0), band_arr.max(axis=0)
-    norm_bands = np.where(band_hi > band_lo, (np.array(bands) - band_lo) / (band_hi - band_lo), 0.0).tolist()
-    payload = {"norm_bands": norm_bands, "rms": rms, "norm_rms": norm_rms}
-    for conn in list(audio_connections):
-        asyncio.run_coroutine_threadsafe(conn.send_json(payload), _audio_loop)
 
 # Path for persisting state and active view across reloads
 STATE_FILE = Path("/tmp/shairport-web-state.json")
@@ -318,8 +296,32 @@ async def startup_event():
     udp_task = asyncio.create_task(udp_processor())
     # Start the single shared audio capture stream (device only supports 1 substream)
     _audio_loop = asyncio.get_event_loop()
-    _audio_stream = sd.InputStream(device=3, channels=2, samplerate=48000, blocksize=1024, dtype="int32", callback=_audio_callback)
+    _audio_stream = sd.InputStream(device=3, channels=2, samplerate=48000, blocksize=256, dtype="int32", callback=_audio_callback)
     _audio_stream.start()
+
+# Store active websocket connections
+active_connections = []
+audio_connections = []
+_audio_window = deque(maxlen=200)  # lookback window size (blocks), adjust to change smoothing
+_band_window = deque(maxlen=1000)  # per-band history for individual normalization
+_audio_stream = None
+_audio_loop = None
+band_count = 32  # number of frequency bands for FFT analysis
+
+def _audio_callback(indata, frames, t, status):
+    mono = indata.astype(np.float32).mean(axis=1) / 2147483648.0  # normalize S32_LE to match shairport's tap format
+    mag = np.abs(np.fft.rfft(mono * np.hanning(len(mono))))
+    bands = [float(b.mean()) for b in np.array_split(mag, band_count)]
+    rms = float(np.sqrt(np.mean(mono ** 2)))
+    _audio_window.append(rms); lo, hi = min(_audio_window), max(_audio_window)
+    norm_rms = (rms - lo) / (hi - lo) if hi > lo else 0.0
+    _band_window.append(bands)
+    band_arr = np.array(_band_window)
+    band_lo, band_hi = band_arr.min(axis=0), band_arr.max(axis=0)
+    norm_bands = np.where(band_hi > band_lo, (np.array(bands) - band_lo) / (band_hi - band_lo), 0.0).tolist()
+    payload = {"norm_bands": norm_bands, "rms": rms, "norm_rms": norm_rms}
+    for conn in list(audio_connections):
+        asyncio.run_coroutine_threadsafe(conn.send_json(payload), _audio_loop)
 
 @app.on_event("shutdown")
 async def shutdown_event():
