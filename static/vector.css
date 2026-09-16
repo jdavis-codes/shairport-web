@@ -11,6 +11,14 @@
 */
 
 @import url('https://fonts.cdnfonts.com/css/oscilloscope');
+@import url('https://fonts.cdnfonts.com/css/c-u-d-d-l-e-s-s-p-a-c-e-d');
+
+/* Oscilloscope's colon glyph renders blank, so force fallback for that codepoint only */
+@font-face {
+    font-family: 'Oscilloscope';
+    src: local('Courier New');
+    unicode-range: U+003A;
+}
 
 :root {
     --fg: #ffffff;
@@ -24,7 +32,8 @@
 }
 
 body {
-    font-family: 'Oscilloscope', 'Courier New', Courier, monospace;
+    /* font-family: 'Oscilloscope', 'Courier New', Courier, monospace; */
+    font-family: 'Cuddles', sans-serif;
     background-color: var(--bg);
     color: var(--fg);
     margin: 0;
@@ -52,8 +61,10 @@ body {
     position: absolute;
     transform-origin: 0 0;
     z-index: 2;
-    background-color: var(--bg);
-    border: 3px solid var(--fg);
+    /* background-color: var(--bg); */
+    /* clear backgroud */
+    opacity: 1;
+    /* border: 1ch solid var(--fg); */
     border-radius: 0;
     width: 800px;
     height: 400px;
@@ -61,7 +72,7 @@ body {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+    /* box-shadow: 0 0 10px rgba(255, 255, 255, 0.2); */
     overflow: hidden;
 }
 

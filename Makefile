@@ -2,6 +2,7 @@
 
 SHAIRPORT_CONF = /usr/local/etc/shairport-sync.conf
 WEB_DIR = /home/ada/shairport-web
+WEB_PID_FILE = /tmp/shairport-web.pid
 CRON_FILE = $(WEB_DIR)/system_config/ada.crontab
 HOTPLUG_RULE_SRC = $(WEB_DIR)/system_config/99-hdmi-hotplug.rules
 HOTPLUG_RULE_DST = /etc/udev/rules.d/99-hdmi-hotplug.rules
@@ -129,14 +130,16 @@ web:
 
 web-start:
 	@echo "Starting Shairport Web UI in background..."
-	@cd $(WEB_DIR) && nohup DEBUG=true uv run uvicorn main:app --reload --reload-include "*.html" --reload-include "*.css" --reload-include "*.js" --host 0.0.0.0 --port 8000 > /tmp/shairport-web.log 2>&1 &
-	@echo "Web UI started. PID: $$!"
+	@cd $(WEB_DIR) && DEBUG=true setsid nohup uv run uvicorn main:app --reload --reload-include "*.html" --reload-include "*.css" --reload-include "*.js" --host 0.0.0.0 --port 8000 > /tmp/shairport-web.log 2>&1 & echo $$! > $(WEB_PID_FILE)
 	@sleep 1
+	@echo "Web UI started. PID: $$(cat $(WEB_PID_FILE))"
 	@echo "Access at http://localhost:8000"
 
 web-stop:
 	@echo "Stopping Shairport Web UI..."
-	@pkill -f "uvicorn main:app" 2>/dev/null && echo "Stopped." || echo "Not running."
+	@if [ -f $(WEB_PID_FILE) ]; then kill -- -$$(cat $(WEB_PID_FILE)) 2>/dev/null; rm -f $(WEB_PID_FILE); fi
+	@fuser -k 8000/tcp 2>/dev/null; pkill -9 -f "uvicorn main:app" 2>/dev/null; true
+	@echo "Stopped."
 
 web-logs:
 	@tail -f /tmp/shairport-web.log

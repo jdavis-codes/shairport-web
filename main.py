@@ -5,6 +5,9 @@ import json
 import base64
 import struct
 import threading
+from collections import deque
+import numpy as np
+import sounddevice as sd
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -15,6 +18,13 @@ app = FastAPI()
 
 # Serve static files (HTML, JS, CSS)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.middleware("http")
+async def no_cache_html_css(request, call_next):
+    response = await call_next(request)
+    if request.url.path.endswith((".html", ".css")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 # Hot-reload support for kiosk browser (CSS/HTML/JS)
 if _debug := os.getenv("DEBUG"):
@@ -28,6 +38,27 @@ if _debug := os.getenv("DEBUG"):
 
 # Store active websocket connections
 active_connections = []
+audio_connections = []
+_audio_window = deque(maxlen=200)  # lookback window size (blocks), adjust to change smoothing
+_band_window = deque(maxlen=200)  # per-band history for individual normalization
+_audio_stream = None
+_audio_loop = None
+band_count = 32  # number of frequency bands for FFT analysis
+
+def _audio_callback(indata, frames, t, status):
+    mono = indata.astype(np.float32).mean(axis=1) / 2147483648.0  # normalize S32_LE to match shairport's tap format
+    mag = np.abs(np.fft.rfft(mono * np.hanning(len(mono))))
+    bands = [float(b.mean()) for b in np.array_split(mag, band_count)]
+    rms = float(np.sqrt(np.mean(mono ** 2)))
+    _audio_window.append(rms); lo, hi = min(_audio_window), max(_audio_window)
+    norm_rms = (rms - lo) / (hi - lo) if hi > lo else 0.0
+    _band_window.append(bands)
+    band_arr = np.array(_band_window)
+    band_lo, band_hi = band_arr.min(axis=0), band_arr.max(axis=0)
+    norm_bands = np.where(band_hi > band_lo, (np.array(bands) - band_lo) / (band_hi - band_lo), 0.0).tolist()
+    payload = {"norm_bands": norm_bands, "rms": rms, "norm_rms": norm_rms}
+    for conn in list(audio_connections):
+        asyncio.run_coroutine_threadsafe(conn.send_json(payload), _audio_loop)
 
 # Path for persisting state and active view across reloads
 STATE_FILE = Path("/tmp/shairport-web-state.json")
@@ -278,17 +309,24 @@ udp_task = None
 
 @app.on_event("startup")
 async def startup_event():
-    global udp_task, _udp_thread
+    global udp_task, _udp_thread, _audio_stream, _audio_loop
     # Start the UDP reader thread
     _udp_stop.clear()
     _udp_thread = threading.Thread(target=_udp_thread_worker, daemon=True)
     _udp_thread.start()
     # Start the async processor
     udp_task = asyncio.create_task(udp_processor())
+    # Start the single shared audio capture stream (device only supports 1 substream)
+    _audio_loop = asyncio.get_event_loop()
+    _audio_stream = sd.InputStream(device=3, channels=2, samplerate=48000, blocksize=1024, dtype="int32", callback=_audio_callback)
+    _audio_stream.start()
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    global udp_task, _udp_thread
+    global udp_task, _udp_thread, _audio_stream
+    if _audio_stream:
+        _audio_stream.stop()
+        _audio_stream.close()
     # Signal thread to stop
     _udp_stop.set()
     # Cancel async processor
@@ -321,7 +359,7 @@ async def get(view: str = None):
     if view:
         set_active_view_name(view)
     active_view = get_active_view_name()
-    return HTMLResponse(render_view_html(active_view))
+    return HTMLResponse(render_view_html(active_view), headers={"Cache-Control": "no-store"})
 
 @app.get("/view/{name}")
 async def switch_view_api(name: str):
@@ -347,3 +385,13 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         active_connections.remove(websocket)
+
+@app.websocket("/audio-ws")
+async def audio_websocket(websocket: WebSocket):
+    await websocket.accept()
+    audio_connections.append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        audio_connections.remove(websocket)

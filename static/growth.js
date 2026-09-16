@@ -7,9 +7,11 @@
   }
 
   const CFG = {
-    insertDistance: 14,
-    separationDistance: 30,
-    maxPoints: 4800,
+    insertDistance: 10,
+    removeDistance: 3,
+    separationDistance: 40,
+    maxPoints: 2000,
+    minPoints: 400,
     edgeSoftMargin: 14,
     edgeHardMargin: 4,
     obstaclePadding: 10,
@@ -22,17 +24,40 @@
     obstacleEpsilon: 0.001,
     spawnInset: 170,
     basePoints: 28,
+    trailAlpha: 100,
     jitter: 2.0,
     spring: 0.52,
     damping: 0.9,
     wobbleAmp: 0.2,
-    wobbleRateX: 0.005,
+    wobbleRateX: 0.5,
     wobbleRateY: 0.004,
   };
 
   let nodes = [];
   let warpReady = false;
   let started = false;
+
+  const mapRange = (value, inMin, inMax, outMin, outMax) => 
+  ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
+
+  const baseSeparationDistance = CFG.separationDistance;
+  const audioWs = new WebSocket(`ws://${location.host}/audio-ws`);
+  audioWs.onmessage = (e) => {
+    const norm_rms = JSON.parse(e.data).norm_rms;
+    // low frequency audio response - avg of bottom 10 bins
+    const low = JSON.parse(e.data).norm_bands.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+    // mid - avg of middle 12 bins
+    const mid = JSON.parse(e.data).norm_bands.slice(10, 22).reduce((a, b) => a + b, 0) / 12;
+    // high frequency audio response - avg of top 10 bins
+    const high = JSON.parse(e.data).norm_bands.slice(22).reduce((a, b) => a + b, 0) / 10;
+    console.log("low:", low, "mid:", mid, "high:", high);
+
+    CFG.spring = mapRange(high, 0, 1, .5, .8)
+    CFG.damping = mapRange(norm_rms, 0, 1, 0.8, .95)
+    // CFG.wobbleAmp = mapRange(high, 0, 1, .1, 3);
+    CFG.removeDistance = mapRange(low, 0, 1, 1, 13);
+    // console.log("audio data full:", JSON.parse(e.data));
+  };
 
   class Point {
     constructor(x, y, userData) {
@@ -413,6 +438,17 @@
     }
   }
 
+  function removeNodes() {
+    for (let i = 0; i < nodes.length && nodes.length > CFG.minPoints; i += 1) {
+      const a = nodes[i].pos;
+      const b = nodes[(i + 1) % nodes.length].pos;
+      if (p5.Vector.dist(a, b) < CFG.removeDistance) {
+        nodes.splice(i, 1);
+        i -= 1;
+      }
+    }
+  }
+
   const sketch = (p) => {
     let qt = null;
 
@@ -441,7 +477,7 @@
     };
 
     p.draw = () => {
-      p.clear();
+      p.background(0, CFG.trailAlpha);
 
       if (!warpReady && handlesHaveCoordinates()) {
         warpReady = true;
@@ -510,6 +546,7 @@
       }
 
       insertNodes(p, obstacle);
+      removeNodes();
 
       p.beginShape();
       for (let i = 0; i < nodes.length; i += 1) {
