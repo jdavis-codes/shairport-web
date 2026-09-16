@@ -1,4 +1,4 @@
-.PHONY: help scan hdmi1 hdmi2 hifiberry restart status hotplug-enable hotplug-disable hotplug-status web web-start web-stop web-logs web-reopen web-view-vector web-view-classic web-view-status cron-install cron-show projector-on projector-once projector-off projector-off-once projector-boot-enable projector-boot-disable projector-boot-run projector-boot-status ir-status ir-scan
+.PHONY: help scan hdmi1 hdmi2 hifiberry asound-install restart status hotplug-enable hotplug-disable hotplug-status web web-start web-stop web-logs web-reopen web-view-vector web-view-classic web-view-status cron-install cron-show projector-on projector-once projector-off projector-off-once projector-boot-enable projector-boot-disable projector-boot-run projector-boot-status ir-status ir-scan
 
 SHAIRPORT_CONF = /usr/local/etc/shairport-sync.conf
 WEB_DIR = /home/ada/shairport-web
@@ -14,6 +14,7 @@ help:
 	@echo "  make hdmi1               # Switch output to HDMI 1"
 	@echo "  make hdmi2               # Switch output to HDMI 2"
 	@echo "  make hifiberry           # Switch output to HifiBerry Digi (S/PDIF)"
+	@echo "  make asound-install      # Install /etc/asound.conf (audio taps for FFT)"
 	@echo ""
 	@echo "Shairport service:"
 	@echo "  make restart             # Restart Shairport Sync"
@@ -60,25 +61,30 @@ scan:
 	@shairport-sync -X 2>&1 | grep -A5 "^Configuration File Settings:"
 
 hdmi1:
-	@echo "Switching to HDMI 1 (vc4hdmi0)..."
-	@sudo sed -i 's/output_device = ".*";/output_device = "hdmi:vc4hdmi0";/' $(SHAIRPORT_CONF)
+	@echo "Switching to HDMI 1 (vc4hdmi0, tapped for FFT)..."
+	@sudo sed -i 's/output_device = ".*";/output_device = "tap_hdmi1_out";/' $(SHAIRPORT_CONF)
 	@sudo systemctl restart shairport-sync
 	@echo "Done. Active config:"
 	@shairport-sync -X 2>&1 | grep output_device
 
 hdmi2:
-	@echo "Switching to HDMI 2 (vc4hdmi1)..."
-	@sudo sed -i 's/output_device = ".*";/output_device = "hdmi:vc4hdmi1";/' $(SHAIRPORT_CONF)
+	@echo "Switching to HDMI 2 (vc4hdmi1, tapped for FFT)..."
+	@sudo sed -i 's/output_device = ".*";/output_device = "tap_hdmi2_out";/' $(SHAIRPORT_CONF)
 	@sudo systemctl restart shairport-sync
 	@echo "Done. Active config:"
 	@shairport-sync -X 2>&1 | grep output_device
 
 hifiberry:
-	@echo "Switching to HifiBerry Digi (S/PDIF)..."
-	@sudo sed -i 's|output_device = ".*";|output_device = "iec958:CARD=sndrpihifiberry,DEV=0";|' $(SHAIRPORT_CONF)
+	@echo "Switching to HifiBerry Digi (S/PDIF, tapped for FFT)..."
+	@sudo sed -i 's|output_device = ".*";|output_device = "tap_hifiberry_out";|' $(SHAIRPORT_CONF)
 	@sudo systemctl restart shairport-sync
 	@echo "Done. Active config:"
 	@shairport-sync -X 2>&1 | grep output_device
+
+asound-install:
+	@echo "Installing /etc/asound.conf (audio taps for FFT)..."
+	@sudo install -m 0644 $(WEB_DIR)/system_config/asound.conf /etc/asound.conf
+	@echo "Installed. Restart shairport-sync (make restart) to pick it up."
 
 # --- Shairport Sync Service ---
 
